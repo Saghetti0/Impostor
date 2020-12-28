@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Impostor.Server.Net.Inner.Objects.Components
 {
-    internal class InnerCustomNetworkTransform : InnerNetObject
+    internal partial class InnerCustomNetworkTransform : InnerNetObject
     {
         private static readonly FloatRange XRange = new FloatRange(-40f, 40f);
         private static readonly FloatRange YRange = new FloatRange(-40f, 40f);
@@ -135,7 +135,7 @@ namespace Impostor.Server.Net.Inner.Objects.Components
 
         private void SnapTo(Vector2 position, ushort minSid)
         {
-            if (SidGreaterThan(minSid, _lastSequenceId))
+            if (!SidGreaterThan(minSid, _lastSequenceId))
             {
                 return;
             }

@@ -1,13 +1,12 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Impostor.Api;
-using Impostor.Api.Events;
 using Impostor.Api.Events.Managers;
-using Impostor.Api.Events.Net;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
-using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
+using Impostor.Server.Events.Player;
 using Impostor.Server.Net.Inner.Objects.Components;
 using Impostor.Server.Net.State;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,7 +26,7 @@ namespace Impostor.Server.Net.Inner.Objects
             _eventManager = eventManager;
             _game = game;
 
-            Physics = ActivatorUtilities.CreateInstance<InnerPlayerPhysics>(serviceProvider, this);
+            Physics = ActivatorUtilities.CreateInstance<InnerPlayerPhysics>(serviceProvider, this, _eventManager, _game);
             NetworkTransform = ActivatorUtilities.CreateInstance<InnerCustomNetworkTransform>(serviceProvider, this, _game);
 
             Components.Add(this);
@@ -81,7 +80,18 @@ namespace Impostor.Server.Net.Inner.Objects
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.CompleteTask)} to a specific player instead of broadcast");
                     }
 
-                    var index = reader.ReadPackedUInt32();
+                    var taskId = reader.ReadPackedUInt32();
+                    var task = PlayerInfo.Tasks[(int)taskId];
+                    if (task == null)
+                    {
+                        _logger.LogWarning($"Client sent {nameof(RpcCalls.CompleteTask)} with a taskIndex that is not in their {nameof(InnerPlayerInfo)}");
+                    }
+                    else
+                    {
+                        task.Complete = true;
+                        await _eventManager.CallAsync(new PlayerCompletedTaskEvent(_game, sender, this, task));
+                    }
+
                     break;
                 }
 
@@ -140,6 +150,8 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     // TODO: Not hit?
                     Die(DeathReason.Exile);
+
+                    await _eventManager.CallAsync(new PlayerExileEvent(_game, sender, this));
                     break;
                 }
 
@@ -235,6 +247,7 @@ namespace Impostor.Server.Net.Inner.Objects
                 }
 
                 // TODO: (ANTICHEAT) Location check?
+                // only called by a non-host player on to start meeting
                 case RpcCalls.ReportDeadBody:
                 {
                     if (!sender.IsOwner(this))
@@ -247,7 +260,10 @@ namespace Impostor.Server.Net.Inner.Objects
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.ReportDeadBody)} to a specific player instead of broadcast");
                     }
 
+
                     var deadBodyPlayerId = reader.ReadByte();
+                    // deadBodyPlayerId == byte.MaxValue -- means emergency call by button
+
                     break;
                 }
 
@@ -269,10 +285,18 @@ namespace Impostor.Server.Net.Inner.Objects
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.MurderPlayer)} as crewmate");
                     }
 
+                    if (!sender.Character.PlayerInfo.CanMurder(_game))
+                    {
+                        throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.MurderPlayer)} too fast");
+                    }
+
+                    sender.Character.PlayerInfo.LastMurder = DateTimeOffset.UtcNow;
+
                     var player = reader.ReadNetObject<InnerPlayerControl>(_game);
                     if (!player.PlayerInfo.IsDead)
                     {
                         player.Die(DeathReason.Kill);
+                        await _eventManager.CallAsync(new PlayerMurderEvent(_game, sender, this, player));
                     }
 
                     break;
@@ -292,7 +316,7 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     var chat = reader.ReadString();
 
-                    await _eventManager.CallAsync(new PlayerChatEvent(_game, this, chat));
+                    await _eventManager.CallAsync(new PlayerChatEvent(_game, sender, this, chat));
                     break;
                 }
 
@@ -308,10 +332,13 @@ namespace Impostor.Server.Net.Inner.Objects
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.StartMeeting)} to a specific player instead of broadcast");
                     }
 
-                    var playerId = reader.ReadByte();
-                    var player = _game.GameNet.GameData.GetPlayerById(playerId);
+                    // deadBodyPlayerId == byte.MaxValue -- means emergency call by button
+                    var deadBodyPlayerId = reader.ReadByte();
+                    var deadPlayer = deadBodyPlayerId != byte.MaxValue
+                        ? _game.GameNet.GameData.GetPlayerById(deadBodyPlayerId)?.Controller
+                        : null;
 
-                    // Meeting started by "player", can also be null.
+                    await _eventManager.CallAsync(new PlayerStartMeetingEvent(_game, _game.GetClientPlayer(this.OwnerId), this, deadPlayer));
                     break;
                 }
 
@@ -383,6 +410,11 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     // Is either start countdown or byte.MaxValue
                     var secondsLeft = reader.ReadByte();
+                    if (secondsLeft < byte.MaxValue)
+                    {
+                        await _eventManager.CallAsync(new PlayerSetStartCounterEvent(_game, sender, this, secondsLeft));
+                    }
+
                     break;
                 }
 
@@ -414,7 +446,7 @@ namespace Impostor.Server.Net.Inner.Objects
             PlayerId = reader.ReadByte();
         }
 
-        private void Die(DeathReason reason)
+        internal void Die(DeathReason reason)
         {
             PlayerInfo.IsDead = true;
             PlayerInfo.LastDeathReason = reason;

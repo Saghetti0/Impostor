@@ -2,6 +2,7 @@
 using System.Net;
 using System.Threading.Tasks;
 using Impostor.Api.Net.Messages;
+using Microsoft.Extensions.ObjectPool;
 
 namespace Impostor.Hazel.Udp
 {
@@ -26,7 +27,7 @@ namespace Impostor.Hazel.Udp
         /// <param name="listener">The listener that created this connection.</param>
         /// <param name="endPoint">The endpoint that we are connected to.</param>
         /// <param name="IPMode">The IPMode we are connected using.</param>
-        internal UdpServerConnection(UdpConnectionListener listener, IPEndPoint endPoint, IPMode IPMode) : base(listener)
+        internal UdpServerConnection(UdpConnectionListener listener, IPEndPoint endPoint, IPMode IPMode, ObjectPool<MessageReader> readerPool) : base(listener, readerPool)
         {
             this.Listener = listener;
             this.RemoteEndPoint = endPoint;
@@ -55,11 +56,11 @@ namespace Impostor.Hazel.Udp
         /// <summary>
         ///     Sends a disconnect message to the end point.
         /// </summary>
-        protected override ValueTask<bool> SendDisconnect(MessageWriter data = null)
+        protected override async ValueTask<bool> SendDisconnect(MessageWriter data = null)
         {
             lock (this)
             {
-                if (this._state != ConnectionState.Connected) return ValueTask.FromResult(false);
+                if (this._state != ConnectionState.Connected) return false;
                 this._state = ConnectionState.NotConnected;
             }
             
@@ -74,11 +75,11 @@ namespace Impostor.Hazel.Udp
 
             try
             {
-                Listener.SendDataSync(bytes, bytes.Length, RemoteEndPoint);
+                await Listener.SendData(bytes, bytes.Length, RemoteEndPoint);
             }
             catch { }
 
-            return ValueTask.FromResult(true);
+            return true;
         }
 
         protected override void Dispose(bool disposing)

@@ -5,12 +5,12 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Impostor.Api;
-using Impostor.Api.Events;
 using Impostor.Api.Events.Managers;
 using Impostor.Api.Games;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Innersloth;
 using Impostor.Server.Config;
+using Impostor.Server.Events;
 using Impostor.Server.Net.Redirector;
 using Impostor.Server.Net.State;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,7 +36,7 @@ namespace Impostor.Server.Net.Manager
             _serviceProvider = serviceProvider;
             _eventManager = eventManager;
             _gameCodeFactory = gameCodeFactory;
-            _publicIp = new IPEndPoint(IPAddress.Parse(config.Value.PublicIp), config.Value.PublicPort);
+            _publicIp = new IPEndPoint(IPAddress.Parse(config.Value.ResolvePublicIp()), config.Value.PublicPort);
             _games = new ConcurrentDictionary<int, Game>();
         }
 

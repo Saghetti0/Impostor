@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Impostor.Api;
+using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
@@ -43,8 +44,7 @@ namespace Impostor.Server.Net.Inner.Objects
             return _allPlayers.TryGetValue(id, out var player) ? player : null;
         }
 
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call,
-            IMessageReader reader)
+        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call, IMessageReader reader)
         {
             switch (call)
             {
@@ -81,7 +81,7 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     while (reader.Position < reader.Length)
                     {
-                        var message = reader.ReadMessage();
+                        using var message = reader.ReadMessage();
                         var player = GetPlayerById(message.Tag);
                         if (player != null)
                         {
@@ -175,10 +175,12 @@ namespace Impostor.Server.Net.Inner.Objects
 
             player.Tasks = new List<TaskInfo>(taskTypeIds.Length);
 
-            for (var i = 0; i < taskTypeIds.Length; i++)
+            foreach (var taskId in taskTypeIds.ToArray())
             {
-                player.Tasks.Add(new TaskInfo());
-                player.Tasks[i].Id = (uint)i;
+                player.Tasks.Add(new TaskInfo
+                {
+                    Id = taskId,
+                });
             }
         }
     }

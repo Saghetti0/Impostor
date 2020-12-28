@@ -1,28 +1,69 @@
 ﻿using System;
+using System.Numerics;
 using System.Threading.Tasks;
 using Impostor.Api.Events;
-using Impostor.Api.Events.Net;
+using Impostor.Api.Events.Player;
+using Impostor.Api.Innersloth.Customization;
+using Microsoft.Extensions.Logging;
 
 namespace Impostor.Plugins.Example.Handlers
 {
     public class PlayerEventListener : IEventListener
     {
-        [EventListener]
-        public void OnPlayerSpawned(PlayerSpawnedEvent e)
+        private static readonly Random Random = new Random();
+
+        private readonly ILogger<PlayerEventListener> _logger;
+
+        public PlayerEventListener(ILogger<PlayerEventListener> logger)
         {
-            Console.WriteLine(e.PlayerControl.PlayerInfo.PlayerName + " spawned");
+            _logger = logger;
         }
 
         [EventListener]
-        public void OnPlayerDestroyed(PlayerDestroyedEvent e)
+        public void OnPlayerSpawned(IPlayerSpawnedEvent e)
         {
-            Console.WriteLine(e.PlayerControl.PlayerInfo.PlayerName + " destroyed");
+            _logger.LogDebug(e.PlayerControl.PlayerInfo.PlayerName + " spawned");
+
+            // Need to make a local copy because it might be possible that
+            // the event gets changed after being handled.
+            var clientPlayer = e.ClientPlayer;
+            var playerControl = e.PlayerControl;
+
+            /*
+            Task.Run(async () =>
+            {
+                Console.WriteLine("Starting player task.");
+
+                // Give the player time to load.
+                await Task.Delay(TimeSpan.FromSeconds(3));
+
+                while (clientPlayer.Client.Connection != null &&
+                       clientPlayer.Client.Connection.IsConnected)
+                {
+                    // Modify player properties.
+                    await playerControl.SetColorAsync((byte) Random.Next(1, 9));
+                    await playerControl.SetHatAsync((uint) Random.Next(1, 9));
+                    await playerControl.SetSkinAsync((uint) Random.Next(1, 9));
+                    await playerControl.SetPetAsync((uint) Random.Next(1, 9));
+
+                    await Task.Delay(TimeSpan.FromMilliseconds(5000));
+                }
+
+                _logger.LogDebug("Stopping player task.");
+            });
+            */
         }
 
         [EventListener]
-        public async ValueTask OnPlayerChat(PlayerChatEvent e)
+        public void OnPlayerDestroyed(IPlayerDestroyedEvent e)
         {
-            Console.WriteLine(e.PlayerControl.PlayerInfo.PlayerName + " said " + e.Message);
+            _logger.LogDebug(e.PlayerControl.PlayerInfo.PlayerName + " destroyed");
+        }
+
+        [EventListener]
+        public async ValueTask OnPlayerChat(IPlayerChatEvent e)
+        {
+            _logger.LogDebug(e.PlayerControl.PlayerInfo.PlayerName + " said " + e.Message);
 
             if (e.Message == "test")
             {
@@ -33,8 +74,27 @@ namespace Impostor.Plugins.Example.Handlers
                 await e.Game.SyncSettingsAsync();
             }
 
+            if (e.Message == "look")
+            {
+                await e.PlayerControl.SetColorAsync(ColorType.Pink);
+                await e.PlayerControl.SetHatAsync(HatType.Cheese);
+                await e.PlayerControl.SetSkinAsync(SkinType.Police);
+                await e.PlayerControl.SetPetAsync(PetType.Ufo);
+            }
+
+            if (e.Message == "snap")
+            {
+                await e.PlayerControl.NetworkTransform.SnapToAsync(new Vector2(1, 1));
+            }
+
             await e.PlayerControl.SetNameAsync(e.Message);
             await e.PlayerControl.SendChatAsync(e.Message);
+        }
+
+        [EventListener]
+        public void OnPlayerStartMeetingEvent(IPlayerStartMeetingEvent e)
+        {
+            _logger.LogDebug($"Player {e.PlayerControl.PlayerInfo.PlayerName} start meeting, reason: " + (e.Body==null ? "Emergency call button" : "Found the body of the player "+e.Body.PlayerInfo.PlayerName));
         }
     }
 }

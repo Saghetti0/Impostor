@@ -1,7 +1,5 @@
 ﻿using System.Threading.Tasks;
-using Impostor.Api.Events.Managers;
 using Impostor.Api.Plugins;
-using Impostor.Plugins.Example.Handlers;
 using Microsoft.Extensions.Logging;
 
 namespace Impostor.Plugins.Example
@@ -15,13 +13,9 @@ namespace Impostor.Plugins.Example
     {
         private readonly ILogger<ExamplePlugin> _logger;
 
-        public ExamplePlugin(ILogger<ExamplePlugin> logger, IEventManager eventManager)
+        public ExamplePlugin(ILogger<ExamplePlugin> logger)
         {
             _logger = logger;
-
-            eventManager.RegisterListener(new GameEventListener());
-            eventManager.RegisterListener(new PlayerEventListener());
-            eventManager.RegisterListener(new MeetingEventListener());
         }
 
         public override ValueTask EnableAsync()

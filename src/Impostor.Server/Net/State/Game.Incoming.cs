@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Impostor.Api.Events;
 using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Messages;
 using Impostor.Hazel;
+using Impostor.Server.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -111,7 +111,7 @@ namespace Impostor.Server.Net.State
             return GameJoinResult.CreateSuccess(player);
         }
 
-        public async ValueTask HandleEndGame(IMessageReader message)
+        public async ValueTask HandleEndGame(IMessageReader message, GameOverReason gameOverReason)
         {
             GameState = GameStates.Ended;
 
@@ -128,7 +128,7 @@ namespace Impostor.Server.Net.State
                 player.Value.Limbo = LimboStates.PreSpawn;
             }
 
-            await _eventManager.CallAsync(new GameEndedEvent(this));
+            await _eventManager.CallAsync(new GameEndedEvent(this, gameOverReason));
         }
 
         public async ValueTask HandleAlterGame(IMessageReader message, IClientPlayer sender, bool isPublic)
@@ -138,6 +138,8 @@ namespace Impostor.Server.Net.State
             using var packet = MessageWriter.Get(MessageType.Reliable);
             message.CopyTo(packet);
             await SendToAllExceptAsync(packet, sender.Client.Id);
+
+            await _eventManager.CallAsync(new GameAlterEvent(this, isPublic));
         }
 
         public async ValueTask HandleRemovePlayer(int playerId, DisconnectReason reason)

@@ -11,19 +11,22 @@ using Impostor.Hazel;
 using Impostor.Server.Config;
 using Impostor.Server.Net.Manager;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Impostor.Server.Net
 {
     internal class Client : ClientBase
     {
         private readonly ILogger<Client> _logger;
+        private readonly AntiCheatConfig _antiCheatConfig;
         private readonly ClientManager _clientManager;
         private readonly GameManager _gameManager;
 
-        public Client(ILogger<Client> logger, ClientManager clientManager, GameManager gameManager, string name, IHazelConnection connection)
+        public Client(ILogger<Client> logger, IOptions<AntiCheatConfig> antiCheatOptions, ClientManager clientManager, GameManager gameManager, string name, IHazelConnection connection)
             : base(name, connection)
         {
             _logger = logger;
+            _antiCheatConfig = antiCheatOptions.Value;
             _clientManager = clientManager;
             _gameManager = gameManager;
         }
@@ -145,7 +148,7 @@ namespace Impostor.Server.Net
                     var toPlayer = flag == MessageFlags.GameDataTo;
 
                     // Handle packet.
-                    var readerCopy = reader.Slice(reader.Position);
+                    using var readerCopy = reader.Copy();
 
                     // TODO: Return value, either a bool (to cancel) or a writer (to cancel (null) or modify/overwrite).
                     try
@@ -172,6 +175,11 @@ namespace Impostor.Server.Net
                     }
                     catch (ImpostorCheatException e)
                     {
+                        if (_antiCheatConfig.BanIpFromGame)
+                        {
+                            Player.Game.BanIp(Connection.EndPoint.Address);
+                        }
+
                         await DisconnectAsync(DisconnectReason.Hacking, e.Message);
                     }
 
@@ -185,7 +193,11 @@ namespace Impostor.Server.Net
                         return;
                     }
 
-                    await Player.Game.HandleEndGame(reader);
+                    Message08EndGameC2S.Deserialize(
+                        reader,
+                        out var gameOverReason);
+                    
+                    await Player.Game.HandleEndGame(reader, gameOverReason);
                     break;
                 }
 
@@ -267,7 +279,7 @@ namespace Impostor.Server.Net
                 _logger.LogError(ex, "Exception caught in client disconnection.");
             }
 
-            _logger.LogInformation("Client {0} disconnecting, reason: {1}.", Id, reason);
+            _logger.LogInformation("Client {0} disconnecting, reason: {1}", Id, reason);
             _clientManager.Remove(this);
         }
 
@@ -321,20 +333,6 @@ namespace Impostor.Server.Net
             Message16GetGameListS2C.Serialize(message, skeldGameCount, miraHqGameCount, polusGameCount, games);
 
             return Connection.SendAsync(message);
-        }
-
-        private async ValueTask DisconnectAsync(DisconnectReason reason, string message = null)
-        {
-            if (Connection == null)
-            {
-                return;
-            }
-
-            using var packet = MessageWriter.Get(MessageType.Reliable);
-            Message01JoinGameS2C.SerializeError(packet, false, reason, message);
-
-            await Connection.SendAsync(packet);
-            await Connection.DisconnectAsync(message ?? reason.ToString());
         }
     }
 }

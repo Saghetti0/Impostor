@@ -1,16 +1,22 @@
 ﻿using System;
+using System.IO;
+using System.Linq;
 using Impostor.Api.Events.Managers;
 using Impostor.Api.Games;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Net.Manager;
+using Impostor.Api.Net.Messages;
+using Impostor.Hazel.Extensions;
 using Impostor.Server.Config;
 using Impostor.Server.Events;
 using Impostor.Server.Net;
 using Impostor.Server.Net.Factories;
 using Impostor.Server.Net.Manager;
+using Impostor.Server.Net.Messages;
 using Impostor.Server.Net.Redirector;
 using Impostor.Server.Plugins;
 using Impostor.Server.Recorder;
+using Impostor.Server.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -24,13 +30,27 @@ namespace Impostor.Server
     {
         private static int Main(string[] args)
         {
-            Log.Logger = new LoggerConfiguration()
 #if DEBUG
-                .MinimumLevel.Verbose()
+            var logLevel = LogEventLevel.Debug;
+#else
+            var logLevel = LogEventLevel.Information;
+#endif
+
+            if (args.Contains("--verbose"))
+            {
+                logLevel = LogEventLevel.Verbose;
+            }
+            else if (args.Contains("--errors-only"))
+            {
+                logLevel = LogEventLevel.Error;
+            }
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Is(logLevel)
+#if DEBUG
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Debug)
 #else
-                .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
 #endif
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
@@ -38,7 +58,7 @@ namespace Impostor.Server
 
             try
             {
-                Log.Information("Starting Impostor");
+                Log.Information("Starting Impostor v{0}", DotnetUtils.GetVersion());
                 CreateHostBuilder(args).Build().Run();
                 return 0;
             }
@@ -72,6 +92,7 @@ namespace Impostor.Server
                 .Get<PluginConfig>() ?? new PluginConfig();
 
             return Host.CreateDefaultBuilder(args)
+                .UseContentRoot(Directory.GetCurrentDirectory())
 #if DEBUG
                 .UseEnvironment(Environment.GetEnvironmentVariable("IMPOSTOR_ENV") ?? "Development")
 #else
@@ -92,6 +113,7 @@ namespace Impostor.Server
                         .Get<ServerRedirectorConfig>() ?? new ServerRedirectorConfig();
 
                     services.Configure<DebugConfig>(host.Configuration.GetSection(DebugConfig.Section));
+                    services.Configure<AntiCheatConfig>(host.Configuration.GetSection(AntiCheatConfig.Section));
                     services.Configure<ServerConfig>(host.Configuration.GetSection(ServerConfig.Section));
                     services.Configure<ServerRedirectorConfig>(host.Configuration.GetSection(ServerRedirectorConfig.Section));
 
@@ -157,6 +179,7 @@ namespace Impostor.Server
                             });
 
                             services.AddSingleton<PacketRecorder>();
+                            services.AddHostedService(sp => sp.GetRequiredService<PacketRecorder>());
                             services.AddSingleton<IClientFactory, ClientFactory<ClientRecorder>>();
                         }
                         else
@@ -168,6 +191,8 @@ namespace Impostor.Server
                         services.AddSingleton<IGameManager>(p => p.GetRequiredService<GameManager>());
                     }
 
+                    services.AddHazel();
+                    services.AddSingleton<IMessageWriterProvider, MessageWriterProvider>();
                     services.AddSingleton<IGameCodeFactory, GameCodeFactory>();
                     services.AddSingleton<IEventManager, EventManager>();
                     services.AddSingleton<Matchmaker>();
